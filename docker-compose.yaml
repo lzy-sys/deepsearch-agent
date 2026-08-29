@@ -1,0 +1,79 @@
+# ============================================================
+# DeepSearch Agents 全栈一键启动：MySQL + 后端 + 前端(Nginx)
+# 使用：docker compose up --build
+# 访问：前端 http://localhost:8080 ，后端 API http://localhost:8000
+# ============================================================
+name: deepsearch-agents
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: deepsearch-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-root}
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-deepsearch_db}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+      - --sql-mode=TRADITIONAL
+    ports:
+      - "${MYSQL_PORT:-3307}:3306"
+    volumes:
+      - deepsearch_mysql_data:/var/lib/mysql
+      - ./docker/mysql/mysql.sql:/docker-entrypoint-initdb.d/01-init-pharma.sql:ro
+    healthcheck:
+      test:
+        ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: deepsearch-backend
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # 容器内通过服务名访问 MySQL，端口固定为 3306
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      # 容器经宿主机 Clash(7897) 访问外部 LLM/Tavily；内部地址不走代理
+      HTTP_PROXY: http://host.docker.internal:7897
+      HTTPS_PROXY: http://host.docker.internal:7897
+      NO_PROXY: localhost,127.0.0.1,mysql,::1
+    ports:
+      - "8000:8000"
+    volumes:
+      - deepsearch_output:/app/app/output
+      - deepsearch_updated:/app/app/updated
+      # 自研知识库：只读挂载示例文档；索引复用宿主机已构建的 data/rag（含向量）
+      - ./docs/knowledge_base:/app/docs/knowledge_base:ro
+      - ./data/rag:/app/data/rag
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: deepsearch-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  deepsearch_mysql_data:
+  deepsearch_output:
+  deepsearch_updated:

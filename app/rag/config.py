@@ -32,7 +32,6 @@ RAG_CHUNK_OVERLAP: int = _get_int("RAG_CHUNK_OVERLAP", 64)
 # 检索参数
 RAG_TOP_K: int = _get_int("RAG_TOP_K", 4)
 RAG_RETRIEVER: str = os.getenv("RAG_RETRIEVER", "hybrid")  # hybrid | bm25 | vector
-RAG_RRF_K: int = 60  # RRF 融合常数
 
 # 向量化模型（fastembed / ONNX，中文推荐 BAAI/bge-small-zh-v1.5）
 RAG_EMBEDDING_MODEL: str = os.getenv(

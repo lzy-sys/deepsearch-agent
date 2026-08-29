@@ -16,9 +16,9 @@
 
 **📢 说明**：本套实战项目已于 2026 年 5 月 17 日 更新完成，配套教程、章节分支和前后端代码均可对照学习。
 
-如果你正在找一个适合学习 `DeepAgents`、`WebSocket`、`Tavily`、`自研 RAG` 和 AI Agent 工程开发的实战项目，「深度研搜」很可能是最适合你的项目。
+如果你正在找一个适合学习 `DeepAgents`、`WebSocket`、`Tavily`、`LangChain RAG` 和 AI Agent 工程开发的实战项目，「深度研搜」很可能是最适合你的项目。
 
-它不是只调用一次大模型接口，也不是套一个搜索 API 做问答演示。这个项目围绕深度研究场景，用 DeepAgents 组织主智能体和专家子智能体，让系统可以根据任务需要查公开网络、查结构化数据库、查自研内部知识库、读取用户上传附件，并把最终结果整理成回答、Markdown 或 PDF。换句话说，你学到的不是某一个框架 API，而是一条 AI 应用从多智能体规划、工具接入、上下文隔离、接口交付到前端联调的完整项目主线。
+它不是只调用一次大模型接口，也不是套一个搜索 API 做问答演示。这个项目围绕深度研究场景，用 DeepAgents 组织主智能体和专家子智能体，让系统可以根据任务需要查公开网络、查结构化数据库、查内部知识库、读取用户上传附件，并把最终结果整理成回答、Markdown 或 PDF。换句话说，你学到的不是某一个框架 API，而是一条 AI 应用从多智能体规划、工具接入、上下文隔离、接口交付到前端联调的完整项目主线。
 
 > 本套仓库是 [ai-agents-from-zero](https://github.com/didilili/ai-agents-from-zero) 教程体系中的 [实战项目-深度研搜](https://github.com/didilili/ai-agents-from-zero/tree/main/%E5%AE%9E%E6%88%98%E9%A1%B9%E7%9B%AE-%E6%B7%B1%E5%BA%A6%E7%A0%94%E6%90%9C) 配套源码仓库，除了可直接运行和二次开发的项目代码之外，也提供了与教程章节对应的 Git 分支演进过程，以及完整的在线图文讲义入口。
 > 如果你想系统学习「AI 智能体 大模型应用开发」，也可直接从系统教程 [AI 智能体实战速成指南-大模型入门](https://didilili.github.io/ai-agents-from-zero/#/) 开始。
@@ -40,7 +40,7 @@
 - 判断需要公开资料、内部数据、私有知识库还是本次上传文件；
 - 去互联网搜索最新新闻、政策、产品或行业资料；
 - 到 MySQL 查询企业结构化业务数据；
-- 到自研知识库查询内部非结构化文档；
+- 到内部知识库查询非结构化文档；
 - 读取用户上传的 PDF、Word、Excel、Markdown 或文本文件；
 - 汇总多来源信息，判断资料是否足够；
 - 生成 Markdown 报告，并在需要时转换成 PDF；
@@ -68,7 +68,7 @@
 - **多来源检索，而不是模型裸答**
   - `Tavily` 负责互联网公开资料检索。
   - `MySQL` 负责查询结构化业务数据。
-  - `自研知识库 RAG` 负责查询内部非结构化文档。
+  - 知识库 RAG 负责查询内部非结构化文档（基于 LangChain 组件构建 + LangGraph 图编排）。
   - 上传附件由主智能体通过文件工具读取。
 - **从检索到交付的完整可运行链路**
   - 不停留在 Prompt 设计，而是会真实调用工具、读取数据、生成 Markdown，并在需要时转换成 PDF。
@@ -88,7 +88,7 @@
 这套课程十分适合这些场景：
 
 - 想系统学习 `DeepAgents`，但不想只停留在几个玩具示例。
-- 想把 `Tavily`、`MySQL`、`自研 RAG` 和大模型放到同一个研究助手场景里理解。
+- 想把 `Tavily`、`MySQL`、`LangChain RAG` 和大模型放到同一个研究助手场景里理解。
 - 想做一个比简单模型调用更接近真实开发的 AI Agent 项目。
 - 想把项目写进简历，并且能说清楚智能体层、工具层、服务层、文件层和前端层分别做了什么。
 
@@ -102,7 +102,7 @@
 
 | 主线             | 做什么                                                       | 涉及模块                                                                  |
 | ---------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------- |
-| 多智能体深度研搜 | 基于用户任务完成规划、分派、检索、读取附件、汇总和生成交付物 | `DeepAgents` / `LangChain` / `LangGraph` / `Tavily` / `MySQL` / `自研 RAG` |
+| 多智能体深度研搜 | 基于用户任务完成规划、分派、检索、读取附件、汇总和生成交付物 | `DeepAgents` / `LangChain` / `LangGraph` / `Tavily` / `MySQL` / `LangChain RAG` |
 | 前后端实时闭环   | 启动后台任务、上传文件、推送执行过程、展示结果和下载生成文件 | `FastAPI` / `WebSocket` / `React` / `Vite`                                |
 
 ### 智能体与工具
@@ -121,12 +121,12 @@
 | 模块           | 技术                                             | 作用                                                                          |
 | -------------- | ------------------------------------------------ | ----------------------------------------------------------------------------- |
 | 智能体框架     | `DeepAgents`                                     | 创建主智能体和子智能体，承接长任务、多工具、多助手调度                        |
-| 图与检查点     | `LangGraph`                                      | 提供底层运行时和 `InMemorySaver` 会话检查点                                   |
+| 图与检查点     | `LangGraph`                                      | 提供底层运行时、`InMemorySaver` 会话检查点，并编排知识库 RAG 工作流          |
 | 模型与工具抽象 | `LangChain` / `langchain-core`                   | 封装 OpenAI 兼容模型、工具声明和 Agent 调用结构                               |
-| 大模型接入     | OpenAI 兼容接口                                  | 通过 `.env` 中的 `OPENAI_BASE_URL`、`OPENAI_API_KEY`、`LLM_QWEN_MAX` 接入模型 |
+| 大模型接入     | OpenAI 兼容接口                                  | 通过 `.env` 中的 `OPENAI_BASE_URL`、`OPENAI_API_KEY`、`LLM` 接入模型 |
 | 网络搜索       | `Tavily`                                         | 为网络搜索助手提供公开资料检索                                                |
 | 结构化数据     | `MySQL` / `mysql-connector-python`               | 为数据库助手提供药品、库存、销售等教学业务数据                                |
-| 自研知识库 RAG | `ChromaDB` / `fastembed` / `rank_bm25` / `jieba`   | 文档摄取、BM25+向量混合检索与带来源回答                                      |
+| 知识库 RAG     | `langchain-chroma` / `langchain-text-splitters` / `langchain-community(BM25/Ensemble)` / `fastembed` / `jieba` / `LangGraph` | 增量索引（`SQLRecordManager` + `langchain_core.indexing`）、BM25+向量混合检索、LangGraph 标准 RAG 图编排与带来源回答 |
 | 文件处理       | `pypdf` / `python-docx` / `pandas` / `ReportLab` | 读取上传附件，生成 Markdown，转换 PDF                                         |
 | 后端接口       | `FastAPI` / `Uvicorn`                            | 提供任务、取消、上传、文件列表、下载和 WebSocket 接口                         |
 | 实时通信       | `WebSocket`                                      | 推送工具调用、助手调用、最终结果和错误事件                                    |
@@ -137,7 +137,7 @@
 ## 📁 项目结构
 
 ```text
-deepsearch-agents/
+deepsearch-agent/
 ├── app/
 │   ├── agent/
 │   │   ├── subagents/              # 网络搜索、数据库查询、知识库三个子智能体
@@ -150,8 +150,8 @@ deepsearch-agents/
 │   │   └── server.py               # FastAPI 任务、上传、文件、下载、WebSocket 接口
 │   ├── prompt/
 │   │   └── prompts.yml             # 主智能体和子智能体提示词配置
-│   ├── rag/                        # 自研知识库 RAG（摄取/索引/检索/生成）
-│   ├── tools/                      # Tavily、MySQL、自研 RAG、文件读取、Markdown、PDF 工具
+│   ├── rag/                        # LangChain + LangGraph 知识库 RAG（摄取/增量索引/检索/图生成）
+│   ├── tools/                      # Tavily、MySQL、知识库 RAG、文件读取、Markdown、PDF 工具
 │   ├── utils/                      # 路径解析、Markdown/PDF 底层转换等普通 Python 工具
 │   ├── output/                     # 运行时生成：每个会话的 Markdown、PDF 等产物
 │   └── updated/                    # 运行时生成：用户上传文件的会话暂存目录
@@ -159,7 +159,6 @@ deepsearch-agents/
 │   ├── docker-compose.yaml         # 本地 MySQL 教学环境
 │   └── mysql/mysql.sql             # 药品、库存、销售记录模拟数据
 ├── docs/knowledge_base/            # 知识库示例文档（PDF + kb.yaml）
-├── examples/                       # DeepAgents 章节示例脚本
 ├── frontend/                       # React + Vite 前端项目
 ├── evals/                          # LLM-as-judge 评测集（任务集 + 运行器）
 ├── docs/
@@ -189,8 +188,8 @@ deepsearch-agents/
 ### 2. 克隆项目
 
 ```bash
-git clone https://github.com/didilili/deepsearch-agents.git
-cd deepsearch-agents
+git clone https://github.com/lzy-sys/deepsearch-agent.git
+cd deepsearch-agent
 ```
 
 ### 3. 安装后端依赖
@@ -216,7 +215,7 @@ LLM=qwen-max
 # Tavily 配置
 TAVILY_API_KEY=你的_TAVILY_API_KEY
 
-# 自研知识库 RAG 配置（本地摄取 + ChromaDB/BM25 混合检索）
+# ---------- 知识库 RAG 配置（LangChain 增量索引 + ChromaDB/BM25 混合检索） ----------
 RAG_KB_DIR=docs/knowledge_base
 RAG_INDEX_DIR=data/rag
 RAG_CHUNK_SIZE=512
@@ -247,7 +246,7 @@ CORS_ORIGINS=http://localhost:5173
 docker compose -f docker/docker-compose.yaml up -d
 ```
 
-### 6. 准备内部知识库（可选，自研 RAG）
+### 6. 准备内部知识库（可选，知识库 RAG）
 
 服务启动时会自动扫描 `docs/knowledge_base/` 并建立索引（每个子目录 = 一个知识库），也可以手动执行：
 
@@ -255,7 +254,7 @@ docker compose -f docker/docker-compose.yaml up -d
 uv run python -m app.rag.ingest --all
 ```
 
-知识库采用本地自研 RAG：文档分块后写入 ChromaDB（向量索引）并构建 BM25 索引，提问时做混合检索 + LLM 生成带来源的回答。首次运行会联网下载中文向量模型（约 100MB），模型不可用时自动降级为纯 BM25 检索。仓库已内置电商、金融两个示例知识库。
+知识库基于 LangChain 组件构建并接入 LangGraph 编排：文档经 `RecursiveCharacterTextSplitter` 分块后，用 `langchain_core.indexing` 增量索引写入 ChromaDB（`langchain-chroma`）并构建 BM25 索引（`BM25Retriever` + jieba 分词），提问时由 LangGraph 标准 RAG 图（retrieve -> generate）执行混合检索（`EnsembleRetriever`）并生成带来源的回答。增量索引用 `SQLRecordManager` 记录文档指纹，重复摄取自动跳过、变更文档自动重索引。首次运行会联网下载中文向量模型（约 100MB），模型不可用时自动降级为纯 BM25 检索。仓库已内置电商、金融两个示例知识库。
 
 ### 7. 启动后端
 
@@ -282,14 +281,13 @@ pnpm install
 pnpm dev
 ```
 
-前端默认连接：
+前端默认连接（本地开发）：
 
 ```text
-API: http://localhost:8000
-WS:  ws://localhost:8000
+API: /api、/ws 由 Vite 开发代理转发到 http://localhost:8000
 ```
 
-如需修改，可以在 `frontend/.env.local` 中配置：
+`vite.config.ts` 已配置 `/api`、`/ws` 代理到本地 8000 后端，克隆后无需任何配置即可联调。如需绕过代理直连后端（例如后端不在本机），可以在 `frontend/.env.local` 中配置：
 
 ```bash
 VITE_API_BASE_URL=http://localhost:8000
@@ -328,6 +326,7 @@ docker compose up --build
 
 - 首次启动会自动构建后端镜像（`uv` 安装锁定依赖）和前端镜像（`pnpm build` + Nginx 托管）。
 - 后端通过 `env_file` 读取项目根目录 `.env`；`.env` 缺失时也能启动，但需要自行保证模型、搜索等密钥可用。
+- 后端容器以只读方式挂载 `docs/knowledge_base` 示例文档，并复用宿主机 `data/rag` 索引；首次全栈启动前建议先按第 6 步执行一次 `uv run python -m app.rag.ingest --all`，让容器直接使用已构建的索引（含向量模型缓存）。
 - 前端默认使用相对路径请求 `/api` 与 `/ws`，由 Nginx 同源反代到后端，无需额外配置 CORS。
 - 只启动后端与数据库：`docker compose up --build mysql backend`
 
@@ -366,6 +365,8 @@ uv run python -m evals.run_evals
 | 12   | [RAGFlow 子智能体与知识库准备](https://didilili.github.io/ai-agents-from-zero/#/实战项目-深度研搜/12-RAGFlow子智能体与知识库准备)      | RAGFlow 部署、助手列表查询、临时会话问答、知识库助手组装      | `12-deepsearch-ragflow-subagent`      |
 | 13   | [主智能体搭建与异步执行](https://didilili.github.io/ai-agents-from-zero/#/实战项目-深度研搜/13-主智能体搭建与异步执行)                 | 主智能体组装、上传文件读取、Markdown/PDF 工具、会话目录隔离   | `13-deepsearch-main-agent`            |
 | 14   | [FastAPI 接口与项目闭环](https://didilili.github.io/ai-agents-from-zero/#/实战项目-深度研搜/14-FastAPI接口与项目闭环)                  | 任务启动/取消、上传、文件列表、下载、WebSocket 和前端联调     | `14-deepsearch-api-websocket`         |
+
+> 📌 教程第 12 章对应的 `12-deepsearch-ragflow-subagent` 分支基于 RAGFlow 实现；`main` 分支已将其替换为无外部服务依赖的知识库 RAG（LangChain 组件 + LangGraph 图编排，见上文「准备内部知识库」），工具接口与使用方式保持一致。
 
 可以用分支切换对照每一阶段的代码演进：
 

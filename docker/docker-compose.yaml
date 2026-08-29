@@ -24,7 +24,7 @@ services:
       - --sql-mode=TRADITIONAL
     ports:
       # .env.example 默认使用 3307，避免和本机已有 MySQL 的 3306 端口冲突
-      - "${MYSQL_PORT:-3306}:3306"
+      - "${MYSQL_PORT:-3307}:3306"
     volumes:
       - deepsearch_mysql_data:/var/lib/mysql
       # 只读挂载初始化 SQL，容器首次创建数据目录时会自动执行

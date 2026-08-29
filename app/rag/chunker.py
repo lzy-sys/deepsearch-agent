@@ -1,8 +1,13 @@
 """文本分块模块
 
-滑动窗口按字符切块，尽量在段落/句号处断块，相邻块保留重叠，
-保证检索单元信息相对完整。
+基于 LangChain RecursiveCharacterTextSplitter 按字符切块，
+优先在段落、换行、句末标点等分隔符处断块，相邻块保留重叠。
 """
+
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# 中文友好分隔符：递归分块时优先在段落、换行、句号处断块
+_CHINESE_SEPARATORS = ["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""]
 
 
 def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
@@ -17,27 +22,11 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     if not text or chunk_size <= 0:
         return []
 
-    chunks: list[str] = []
-    start = 0
-    length = len(text)
-
-    while start < length:
-        end = min(start + chunk_size, length)
-        chunk = text[start:end]
-
-        # 非末尾块：优先在换行或句号处断块，避免切碎句子
-        if end < length:
-            cut = max(chunk.rfind("\n"), chunk.rfind("。"), chunk.rfind("."))
-            if cut > chunk_size * 0.5:
-                chunk = chunk[: cut + 1]
-                end = start + len(chunk)
-
-        cleaned = chunk.strip()
-        if cleaned:
-            chunks.append(cleaned)
-
-        if end >= length:
-            break
-        start = max(end - overlap, start + 1)
-
-    return chunks
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=overlap,
+        separators=_CHINESE_SEPARATORS,
+        length_function=len,
+        strip_whitespace=True,
+    )
+    return [chunk.strip() for chunk in splitter.split_text(text) if chunk.strip()]

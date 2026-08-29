@@ -1,31 +1,38 @@
-"""索引构建模块（ChromaDB 向量 + BM25）
+"""索引构建模块（LangChain：Chroma 向量 + BM25 + 增量索引）
 
 设计要点：
-- ChromaDB 只存「向量 + 元数据」（kb_name / doc_name / chunk_index / doc_hash），
-  正文统一存 BM25 pickle，避免 chromadb 自动 embedding 与双份存储。
-- 每次同步对该知识库全量重建（先清空再写入），天然幂等、不会重复。
-- 向量模型不可用时自动降级为纯 BM25（Chroma 不写向量，检索时走 BM25）。
+- 文档统一为 LangChain Document（page_content + metadata: kb_name/doc_name/chunk_index/doc_hash）。
+- 向量索引由 langchain-chroma 的 Chroma vectorstore 管理（单集合，cosine，禁用自动 embedding）。
+- 增量索引使用 langchain_core.indexing.index() + SQLRecordManager（SQLite 记录文档 hash），
+  只处理新增/变更/删除的文档，替代手写全量重建。
+- BM25 语料以 Document 列表 pickle 持久化（每知识库一个文件），检索时重建 BM25Retriever。
+- 向量模型不可用时自动降级为纯 BM25（不写向量索引）。
 """
 
 import hashlib
+import os
 import pickle
 from pathlib import Path
-from typing import Optional
 
-import jieba
-from rank_bm25 import BM25Okapi
+from langchain_community.indexes._sql_record_manager import SQLRecordManager
+from langchain_core.documents import Document
+from langchain_core.indexing import index
 
 from app.rag.chunker import chunk_text
 from app.rag.config import (
     RAG_CHUNK_OVERLAP,
     RAG_CHUNK_SIZE,
-    RAG_EMBEDDING_MODEL,
+    RAG_RETRIEVER,
     get_index_root_path,
 )
+from app.rag.embeddings import get_embedding_model
 from app.rag.kb_registry import get_kb_path, list_knowledge_bases
 from app.rag.loader import extract_text
 
-_embedding_model = None
+# Chroma 向量集合名（同一持久化目录下唯一）
+RAG_COLLECTION_NAME = "kb_chunks"
+
+_vectorstore_instance = None
 
 
 def get_index_root() -> Path:
@@ -40,39 +47,36 @@ def get_bm25_dir() -> Path:
     return get_index_root() / "bm25"
 
 
-class _RaiseEmbeddingFunction:
-    """禁止 chromadb 自动 embedding：所有向量必须显式传入"""
-
-    def name(self) -> str:
-        return "raise-no-auto-embedding"
-
-    def __call__(self, input):  # noqa: ANN001
-        raise NotImplementedError("必须显式传入 embeddings")
-
-
-def _get_embedding_model():
-    """懒加载 fastembed 中文向量模型（首次调用会联网下载模型权重）"""
-    global _embedding_model
-    if _embedding_model is None:
-        from fastembed import TextEmbedding
-
-        _embedding_model = TextEmbedding(model_name=RAG_EMBEDDING_MODEL)
-    return _embedding_model
-
-
 def _collection():
-    """懒加载 ChromaDB 持久化客户端与集合"""
-    import chromadb
+    """返回底层 Chroma collection（供统计等直接查询元数据）"""
+    return _vectorstore()._collection
 
-    client = chromadb.PersistentClient(
-        path=str(get_chroma_path()),
-        settings=chromadb.Settings(anonymized_telemetry=False),
+
+def _vectorstore():
+    """懒加载进程级 Chroma vectorstore 单例"""
+    from langchain_chroma import Chroma
+
+    global _vectorstore_instance
+    if _vectorstore_instance is None:
+        _vectorstore_instance = Chroma(
+            collection_name=RAG_COLLECTION_NAME,
+            persist_directory=str(get_chroma_path()),
+            embedding_function=get_embedding_model(),
+            collection_metadata={"hnsw:space": "cosine"},
+        )
+    return _vectorstore_instance
+
+
+def _get_record_manager(kb_name: str) -> SQLRecordManager:
+    """按知识库构建 SQLite 记录管理器（记录文档 hash，支撑增量索引）"""
+    get_index_root().mkdir(parents=True, exist_ok=True)
+    records_path = get_index_root() / "records.sqlite"
+    record_manager = SQLRecordManager(
+        namespace=f"kb/{kb_name}",
+        db_url=f"sqlite:///{records_path.as_posix()}",
     )
-    return client.get_or_create_collection(
-        name="kb_chunks",
-        metadata={"hnsw:space": "cosine"},
-        embedding_function=_RaiseEmbeddingFunction(),
-    )
+    record_manager.create_schema()
+    return record_manager
 
 
 def _file_hash(path: Path) -> str:
@@ -89,66 +93,78 @@ def _kb_doc_files(kb_dir: Path) -> list[Path]:
 
 
 def sync_knowledge_base_dir(kb_dir: Path, force: bool = False) -> dict:
-    """全量重建单个知识库的索引（幂等）
+    """同步单个知识库索引（默认增量；force 时全量重建）
 
     :param kb_dir: 知识库目录
-    :param force: 兼容参数（当前总是全量重建，天然幂等）
+    :param force: 强制全量重建（cleanup=full + 强制更新全部文档）
     :return: 统计信息 {kb_name, docs, chunks, vectors}
     """
-    del force  # 全量重建模式，无需单独处理
     kb_name = kb_dir.name
 
-    # 1) 抽取 + 分块
-    docs = _kb_doc_files(kb_dir)
-    all_chunks: list[tuple[str, dict]] = []
-    for doc_path in docs:
+    # 1) 抽取 + 分块为 LangChain Document（正文与元数据统一在此表示）
+    doc_files = _kb_doc_files(kb_dir)
+    documents: list[Document] = []
+    for doc_path in doc_files:
         text = extract_text(doc_path)
         digest = _file_hash(doc_path)
-        for index, chunk in enumerate(chunk_text(text, RAG_CHUNK_SIZE, RAG_CHUNK_OVERLAP)):
-            all_chunks.append(
-                (
-                    chunk,
-                    {
+        for chunk_index, chunk in enumerate(
+            chunk_text(text, RAG_CHUNK_SIZE, RAG_CHUNK_OVERLAP)
+        ):
+            documents.append(
+                Document(
+                    page_content=chunk,
+                    metadata={
                         "kb_name": kb_name,
                         "doc_name": doc_path.name,
-                        "chunk_index": index,
+                        "chunk_index": chunk_index,
                         "doc_hash": digest,
                     },
                 )
             )
 
-    # 2) 向量索引（模型不可用时降级为纯 BM25）
+    # 2) 向量索引（增量；空知识库/force 时用 full 清理已删除文档的残留；
+    #    纯 BM25 模式跳过向量步骤，保证无向量环境下检索可降级）
     vectors_ok = False
-    if all_chunks:
-        try:
-            embeddings = [
-                e.tolist()
-                for e in _get_embedding_model().embed([c[0] for c in all_chunks])
-            ]
-            collection = _collection()
-            collection.delete(where={"kb_name": kb_name})
-            ids = [
-                f"{kb_name}::{meta['doc_name']}::{meta['chunk_index']}"
-                for _, meta in all_chunks
-            ]
-            collection.add(
-                ids=ids,
-                embeddings=embeddings,
-                metadatas=[meta for _, meta in all_chunks],
+    try:
+        if RAG_RETRIEVER != "bm25":
+            index(
+                documents,
+                _get_record_manager(kb_name),
+                _vectorstore(),
+                cleanup="full" if (force or not documents) else "incremental",
+                source_id_key="doc_name",
+                force_update=force,
+                key_encoder="sha256",
+                # 一次 batch 处理整个知识库：避免跨 batch 的增量清理边界效应
+                # （同一文档的块被拆分到多个 batch 时，前序 batch 的 cleanup
+                # 会误删尚未刷新时间戳的块并重复嵌入）
+                batch_size=1000,
             )
-            vectors_ok = True
-        except Exception as exc:  # noqa: BLE001
-            print(
-                f"[RAG] 向量模型不可用（{exc}），知识库 '{kb_name}' 降级为纯 BM25 检索"
-            )
+        vectors_ok = True
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"[RAG] 向量索引不可用（{exc}），知识库 '{kb_name}' 降级为纯 BM25 检索"
+        )
 
-    # 3) BM25 索引（正文的唯一来源）
-    _save_bm25(kb_name, all_chunks)
+    # 3) BM25 语料持久化：向量索引成功后才原子替换，
+    #    避免"新 BM25 + 旧向量"的混合代次让已删除文档的块仍被检索到
+    if vectors_ok:
+        _save_bm25_documents(kb_name, documents)
+    else:
+        print(
+            f"[RAG] 知识库 '{kb_name}' 向量索引失败，BM25 语料保持上一版本"
+            "（可执行 --rebuild 尝试重建）"
+        )
+
+    # 4) 索引状态已变化，使该知识库的检索器缓存失效，避免检索到旧语料
+    from app.rag.retriever import invalidate_retriever_cache
+
+    invalidate_retriever_cache(kb_name)
 
     return {
         "kb_name": kb_name,
-        "docs": len(docs),
-        "chunks": len(all_chunks),
+        "docs": len({d.metadata["doc_name"] for d in documents}),
+        "chunks": len(documents),
         "vectors": vectors_ok,
     }
 
@@ -161,10 +177,12 @@ def sync_knowledge_base(kb_name: str, force: bool = False) -> dict:
     return sync_knowledge_base_dir(kb_dir, force=force)
 
 
-def sync_all_knowledge_bases(force: bool = False, skip_existing: bool = False) -> list[dict]:
+def sync_all_knowledge_bases(
+    force: bool = False, skip_existing: bool = False
+) -> list[dict]:
     """同步全部知识库（服务启动时自动调用）
 
-    :param force: 强制重建
+    :param force: 强制全量重建
     :param skip_existing: 已建立 BM25 索引的知识库跳过（避免启动时重复下载向量模型）
     """
     results = []
@@ -178,30 +196,23 @@ def sync_all_knowledge_bases(force: bool = False, skip_existing: bool = False) -
     return results
 
 
-def _save_bm25(kb_name: str, chunks: list[tuple[str, dict]]) -> None:
-    corpus = [list(jieba.cut(text)) for text, _ in chunks]
-    payload = {
-        "chunks": [text for text, _ in chunks],
-        "metadatas": [meta for _, meta in chunks],
-        "corpus": corpus,
-    }
+def _save_bm25_documents(kb_name: str, documents: list[Document]) -> None:
+    """原子持久化 BM25 语料（先写临时文件再替换，避免并发读方读到损坏的 pickle）"""
     get_bm25_dir().mkdir(parents=True, exist_ok=True)
-    with (get_bm25_dir() / f"{kb_name}.pkl").open("wb") as f:
-        pickle.dump(payload, f)
+    target = get_bm25_dir() / f"{kb_name}.pkl"
+    tmp_path = target.with_suffix(".pkl.tmp")
+    with tmp_path.open("wb") as f:
+        pickle.dump(documents, f)
+    os.replace(tmp_path, target)
 
 
-def load_bm25(kb_name: str) -> Optional[dict]:
-    """加载 BM25 索引（返回 chunks/metadatas/bm25）"""
+def load_bm25_documents(kb_name: str) -> list[Document]:
+    """加载 BM25 语料（分块 Document 列表，供检索时重建 BM25Retriever）"""
     path = get_bm25_dir() / f"{kb_name}.pkl"
     if not path.exists():
-        return None
+        return []
     with path.open("rb") as f:
-        payload = pickle.load(f)
-    return {
-        "chunks": payload.get("chunks", []),
-        "metadatas": payload.get("metadatas", []),
-        "bm25": BM25Okapi(payload.get("corpus", [])),
-    }
+        return pickle.load(f)
 
 
 def ensure_indexed(kb_name: str) -> None:

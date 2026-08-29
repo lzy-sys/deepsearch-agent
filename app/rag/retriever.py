@@ -1,101 +1,112 @@
-"""检索模块（BM25 + 向量，RRF 融合）
+"""检索模块（LangChain：向量 + BM25 混合检索）
 
-retrieve() 返回按相关度排序的 Top-K 分块：
-- hybrid：BM25 与向量检索结果做 RRF（Reciprocal Rank Fusion）融合
+get_retriever() 按 RAG_RETRIEVER 配置返回指定知识库的检索器：
+- hybrid：EnsembleRetriever 加权融合向量检索与 BM25 检索
 - bm25：仅关键词检索（jieba 分词）
 - vector：仅向量语义检索
 任一检索器不可用时自动降级，保证链路可用。
 """
 
 import jieba
+from langchain_classic.retrievers.ensemble import EnsembleRetriever
+from langchain_community.retrievers import BM25Retriever
+from langchain_core.documents import Document
+from langchain_core.retrievers import BaseRetriever
 
-from app.rag.config import RAG_RETRIEVER, RAG_RRF_K, RAG_TOP_K
-from app.rag.indexer import _collection, _get_embedding_model, load_bm25
+from app.rag.config import RAG_RETRIEVER, RAG_TOP_K
+from app.rag.indexer import _vectorstore, ensure_indexed, load_bm25_documents
 from app.rag.models import Chunk
 
 
-def _rrf_score(bm25_rank, vector_rank) -> float:
-    score = 0.0
-    if bm25_rank is not None:
-        score += 1.0 / (RAG_RRF_K + bm25_rank + 1)
-    if vector_rank is not None:
-        score += 1.0 / (RAG_RRF_K + vector_rank + 1)
-    return round(score, 6)
+def _vector_retriever(kb_name: str, k: int) -> BaseRetriever:
+    """按知识库过滤的向量检索器"""
+    vectorstore = _vectorstore()
+    return vectorstore.as_retriever(
+        search_kwargs={"k": k, "filter": {"kb_name": kb_name}}
+    )
+
+
+def _bm25_retriever(kb_name: str, k: int) -> BM25Retriever | None:
+    """基于 jieba 分词构建的知识库 BM25 检索器"""
+    documents = load_bm25_documents(kb_name)
+    if not documents:
+        return None
+    return BM25Retriever.from_documents(
+        documents,
+        preprocess_func=lambda text: list(jieba.cut(text)),
+        k=k,
+    )
+
+
+# 检索器进程级缓存：同一次会话内多次提问复用同一构建结果，
+# 避免每次都对全部文档重新做 jieba 分词与 BM25 构建
+_retriever_cache: dict[tuple[str, str, int], BaseRetriever] = {}
+
+
+def invalidate_retriever_cache(kb_name: str | None = None) -> None:
+    """使检索器缓存失效（知识库重索引后由 indexer 调用；kb_name 为空时清空全部）"""
+    global _retriever_cache
+    if kb_name is None:
+        _retriever_cache.clear()
+    else:
+        _retriever_cache = {k: v for k, v in _retriever_cache.items() if k[0] != kb_name}
+
+
+def get_retriever(kb_name: str, top_k: int | None = None) -> BaseRetriever:
+    """构建指定知识库的检索器（hybrid / bm25 / vector，向量不可用时自动降级）"""
+    ensure_indexed(kb_name)
+    k = top_k or RAG_TOP_K
+    mode = RAG_RETRIEVER
+    cache_key = (kb_name, mode, k)
+
+    cached = _retriever_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    bm25 = _bm25_retriever(kb_name, k)
+
+    if mode in ("hybrid", "vector"):
+        try:
+            vector = _vector_retriever(kb_name, k)
+            if mode == "vector":
+                _retriever_cache[cache_key] = vector
+                return vector
+            if bm25 is None:
+                _retriever_cache[cache_key] = vector
+                return vector
+            retriever = EnsembleRetriever(retrievers=[vector, bm25], weights=[0.5, 0.5])
+            _retriever_cache[cache_key] = retriever
+            return retriever
+        except Exception as exc:  # noqa: BLE001
+            print(f"[RAG] 向量检索不可用，降级 BM25：{exc}")
+
+    if bm25 is None:
+        raise RuntimeError(f"知识库 '{kb_name}' 没有任何可用的检索器")
+    _retriever_cache[cache_key] = bm25
+    return bm25
+
+
+def doc_to_chunk(doc: Document, kb_name: str, rank: int = 0) -> Chunk:
+    """把 LangChain Document 转成工具层使用的 Chunk 模型
+
+    similarity_score/score 是子检索器写入的真实相关度；EnsembleRetriever
+    融合排序后不写分数，此时用融合排序位置的倒数作为展示分。
+    """
+    score = doc.metadata.get("similarity_score", doc.metadata.get("score"))
+    if score is None:
+        score = 1.0 / (rank + 1)
+    return Chunk(
+        kb_name=kb_name,
+        doc_name=doc.metadata.get("doc_name", ""),
+        chunk_index=doc.metadata.get("chunk_index", 0),
+        text=doc.page_content,
+        score=round(float(score), 4),
+    )
 
 
 def retrieve(kb_name: str, question: str, top_k: int | None = None) -> list[Chunk]:
     """检索知识库，返回 Top-K 分块（含来源文档与相关度）"""
-    top_k = top_k or RAG_TOP_K
-    mode = RAG_RETRIEVER
-    candidates: dict[tuple, dict] = {}
-
-    # 正文映射：(doc_name, chunk_index) -> text（向量检索只返回元数据，正文从 BM25 取）
-    loaded = load_bm25(kb_name)
-    text_by_key: dict[tuple, str] = {}
-    if loaded is not None:
-        for idx, meta in enumerate(loaded["metadatas"]):
-            text_by_key[(meta.get("doc_name"), meta.get("chunk_index"))] = loaded["chunks"][idx]
-
-    # ---------- 向量检索 ----------
-    if mode in ("hybrid", "vector"):
-        try:
-            query_embedding = list(_get_embedding_model().embed([question]))[0]
-            collection = _collection()
-            n_results = max(top_k * 3, 10)
-            result = collection.query(
-                query_embeddings=[query_embedding.tolist()],
-                n_results=n_results,
-                where={"kb_name": kb_name},
-                include=["metadatas", "distances"],
-            )
-            metadatas = (result.get("metadatas") or [[]])[0]
-            for rank, meta in enumerate(metadatas):
-                key = (meta.get("doc_name"), meta.get("chunk_index"))
-                if key not in text_by_key:
-                    continue
-                entry = candidates.setdefault(
-                    key, {"text": text_by_key[key], "meta": meta, "bm25_rank": None, "vector_rank": None}
-                )
-                entry["vector_rank"] = rank
-        except Exception as exc:  # noqa: BLE001
-            print(f"[RAG] 向量检索不可用，降级 BM25：{exc}")
-            if mode == "hybrid":
-                mode = "bm25"
-
-    # ---------- BM25 检索 ----------
-    if mode in ("hybrid", "bm25"):
-        if loaded is not None:
-            chunks = loaded["chunks"]
-            metadatas = loaded["metadatas"]
-            bm25 = loaded["bm25"]
-            tokenized_query = list(jieba.cut(question))
-            scores = bm25.get_scores(tokenized_query)
-            order = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
-            for rank, idx in enumerate(order[: top_k * 3]):
-                if scores[idx] <= 0:
-                    break
-                meta = metadatas[idx]
-                key = (meta.get("doc_name"), meta.get("chunk_index"))
-                entry = candidates.setdefault(
-                    key,
-                    {"text": chunks[idx], "meta": meta, "bm25_rank": None, "vector_rank": None},
-                )
-                entry["bm25_rank"] = rank
-
-    if not candidates:
-        return []
-
-    # ---------- RRF 融合排序 ----------
-    scored: list[Chunk] = []
-    for key, entry in candidates.items():
-        scored.append(
-            Chunk(
-                kb_name=kb_name,
-                doc_name=key[0],
-                chunk_index=key[1],
-                text=entry["text"],
-                score=_rrf_score(entry["bm25_rank"], entry["vector_rank"]),
-            )
-        )
-    scored.sort(key=lambda c: c.score, reverse=True)
-    return scored[:top_k]
+    k = top_k or RAG_TOP_K
+    # EnsembleRetriever 融合两个子检索器后块数可能超过 K，这里收敛到 Top-K
+    documents = get_retriever(kb_name, k).invoke(question)[:k]
+    return [doc_to_chunk(doc, kb_name, rank) for rank, doc in enumerate(documents)]

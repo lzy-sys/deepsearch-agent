@@ -8,6 +8,7 @@ WebSocket 长连接。HTTP 接口只做轻量调度，真正的 DeepAgents 执�
 
 import asyncio
 import os
+import re
 import shutil
 import uuid
 from contextlib import asynccontextmanager
@@ -97,6 +98,17 @@ app.add_middleware(
 )
 
 
+# 会话 ID 白名单：thread_id 同时用于目录名与 URL 路径，只允许安全字符防路径穿越
+_THREAD_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _safe_thread_id(thread_id: str) -> str:
+    """校验并返回合法的 thread_id，非法时抛 400"""
+    if not _THREAD_ID_RE.fullmatch(thread_id or ""):
+        raise HTTPException(status_code=400, detail="非法的 thread_id：仅允许字母、数字、- 和 _")
+    return thread_id
+
+
 class TaskRequest(BaseModel):
     """前端启动任务时提交的请求体。"""
 
@@ -125,10 +137,17 @@ async def run_task(request: TaskRequest):
     """
     thread_id = request.thread_id or str(uuid.uuid4())
 
-    # 同一个 thread_id 只保留一个活跃任务，新任务会先取消旧任务，避免并发写同一会话目录
+    # 同一个 thread_id 只保留一个活跃任务：先取消旧任务并等待其真正结束，
+    # 避免新旧任务并发写同一会话目录与检查点（旧任务的同步工具可能仍在执行）
     old_task = active_tasks.get(thread_id)
     if old_task and not old_task.done():
         old_task.cancel()
+        try:
+            await asyncio.wait_for(old_task, timeout=5.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            pass  # 旧任务卡在不可中断的同步调用时，限时放行
+        except Exception:
+            pass  # 旧任务自身异常不影响新任务启动
 
     # create_task 把长耗时 Agent 执行交给事件循环，接口本身不用等待最终结果
     task = asyncio.create_task(run_deep_agent(request.query, thread_id))
@@ -182,17 +201,25 @@ async def upload_files(files: List[UploadFile] = File(...), thread_id: str = For
         files (List[UploadFile]): 文件对象列表。
         thread_id (str): 关联的任务会话 ID。
     """
+    # thread_id 同时用于目录名，先做白名单校验防止路径穿越
+    _safe_thread_id(thread_id)
+
     # 上传文件先按会话隔离保存，避免不同任务读取到彼此的附件
     target_dir = updated_dir / f"session_{thread_id}"
     target_dir.mkdir(parents=True, exist_ok=True)
 
     saved_files = []
     for file in files:
-        file_path = target_dir / file.filename
+        # 只取文件名部分：浏览器/恶意客户端可能携带 ../ 或绝对路径
+        safe_name = Path(file.filename or "").name
+        if not safe_name or safe_name in {".", ".."}:
+            raise HTTPException(status_code=400, detail=f"非法的文件名: {file.filename!r}")
+
+        file_path = target_dir / safe_name
         # 直接复制文件流，避免大文件一次性读入内存
         with file_path.open("wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        saved_files.append(file.filename)
+        saved_files.append(safe_name)
 
     return {"status": "uploaded", "files": saved_files}
 

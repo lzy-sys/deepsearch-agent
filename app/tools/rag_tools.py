@@ -2,17 +2,17 @@
 
 对外暴露两个 LangChain 工具，供知识库子智能体使用：
 - list_knowledge_bases：列出可用知识库及其文档/分块统计
-- ask_knowledge_base：向指定知识库提问（检索 + LLM 生成带来源回答）
+- ask_knowledge_base：向指定知识库提问（LangGraph RAG 图：检索 + 生成带来源回答）
 内部复用 app/rag 的摄取、索引、检索与生成链路。
 """
 
 from langchain_core.tools import tool
 
 from app.api.monitor import monitor
-from app.rag.generator import generate_answer
+from app.rag.graph import rag_graph
 from app.rag.indexer import _collection, ensure_indexed
 from app.rag.kb_registry import get_kb_path, list_knowledge_bases as _list_kb_registry
-from app.rag.retriever import retrieve
+from app.rag.retriever import doc_to_chunk
 
 
 def _kb_stats() -> dict[str, dict]:
@@ -61,7 +61,8 @@ def ask_knowledge_base(kb_name: str, question: str) -> str:
     """
     向指定的内部知识库提问
 
-    系统会先在该知识库中检索相关内容，再基于检索结果生成带来源的回答。
+    系统会在该知识库中执行一次 LangGraph RAG 工作流：先检索相关内容，
+    再基于检索结果生成带来源的回答。
     注意：调用前必须先通过 list_knowledge_bases 确认知识库名称存在。
     :param kb_name: 知识库名称，必须来自 list_knowledge_bases 返回结果
     :param question: 本次提问的问题
@@ -81,12 +82,14 @@ def ask_knowledge_base(kb_name: str, question: str) -> str:
         return f"知识库 '{kb_name}' 索引建立失败：{exc}"
 
     try:
-        chunks = retrieve(kb_name, question)
+        result = rag_graph.invoke({"kb_name": kb_name, "question": question})
     except Exception as exc:  # noqa: BLE001
-        return f"知识库检索失败：{exc}"
+        return f"知识库问答失败：{exc}"
 
-    answer = generate_answer(kb_name, question, chunks)
-
+    chunks = [
+        doc_to_chunk(doc, kb_name, rank)
+        for rank, doc in enumerate(result.get("context", []))
+    ]
     source_lines = [f"- {chunk.doc_name}（相关度 {chunk.score}）" for chunk in chunks]
     sources = "\n".join(source_lines) if source_lines else "无"
-    return f"【回答】\n{answer}\n\n【来源】\n{sources}"
+    return f"【回答】\n{result.get('answer', '')}\n\n【来源】\n{sources}"

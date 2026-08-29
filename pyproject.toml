@@ -11,6 +11,7 @@ dependencies = [
     "fastembed>=0.8.0",
     "jieba>=0.42.1",
     "langchain==1.2.17",
+    "langchain-chroma>=1.0.0,<2.0.0",
     "langchain-community>=0.2.0",
     "langchain-core>=0.2.0",
     "langchain-deepseek>=1.0.1",
@@ -41,5 +42,5 @@ dependencies = [
 package = false
 
 [[tool.uv.index]]
-url = "https://mirrors.aliyun.com/pypi/simple/"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true

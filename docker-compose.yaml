@@ -55,9 +55,12 @@ services:
     volumes:
       - deepsearch_output:/app/app/output
       - deepsearch_updated:/app/app/updated
-      # 自研知识库：只读挂载示例文档；索引复用宿主机已构建的 data/rag（含向量）
+      # 知识库：只读挂载示例文档；索引复用宿主机已构建的 data/rag（含向量）
       - ./docs/knowledge_base:/app/docs/knowledge_base:ro
       - ./data/rag:/app/data/rag
+      # fastembed 向量模型缓存：复用宿主机已下载的模型，避免容器重建后重新下载
+      # 通过 FASTEMBED_CACHE_HOST 指向宿主缓存目录（默认项目内 data/fastembed）
+      - ${FASTEMBED_CACHE_HOST:-./data/fastembed}:/tmp/fastembed_cache
     depends_on:
       mysql:
         condition: service_healthy

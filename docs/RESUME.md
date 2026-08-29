@@ -16,7 +16,7 @@
 深度研搜 - 对话式多智能体深度研究系统（FastAPI + DeepAgents + LangGraph）
 
 技术栈：Python / DeepAgents / LangGraph / LangChain / FastAPI / WebSocket /
-        MySQL / Tavily / 自研 RAG(ChromaDB+BM25) / React / Docker
+        MySQL / Tavily / 知识库 RAG(LangChain + ChromaDB/BM25) / React / Docker
 
 项目职责：
 - 基于 DeepAgents Orchestrator-Workers 模式搭建"一主三从"多智能体架构：
@@ -41,7 +41,7 @@
 DeepSearch Agents - Conversational Multi-Agent Deep Research System
 
 Tech Stack: Python / DeepAgents / LangGraph / LangChain / FastAPI / WebSocket /
-            MySQL / Tavily / RAGFlow / React / Docker
+            MySQL / Tavily / RAG (LangChain + ChromaDB/BM25) / React / Docker
 
 Highlights:
 - Built a 1-orchestrator + 3-worker agent architecture on DeepAgents:

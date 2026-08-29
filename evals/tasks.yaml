@@ -4,7 +4,6 @@
 # reference_points（参考答案要点，LLM-as-judge 据此打分）。
 # requires 为可选字段：
 #   - upload  ：需要先准备上传附件（用 run_evals.py --fixtures-dir 指定）
-#   - ragflow ：需要本地 RAGFlow 服务可用（用 --include-ragflow 开启）
 # ============================================================
 
 - id: 1
@@ -99,8 +98,7 @@
     - 回答结构清晰、结论明确
 
 - id: 11
-  category: ragflow
-  requires: ragflow
+  category: rag
   query: 请查询内部知识库中关于电商品类策略的白皮书内容，并整理成三条可执行建议。
   reference_points:
     - 调用知识库助手查询内部文档

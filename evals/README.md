@@ -17,6 +17,7 @@ evals/
 - 已按 README 配置好 `.env`（LLM API Key 必须可用，评测会真实调用模型）
 - 网络可用（网络搜索类任务依赖 Tavily）
 - 数据库类任务需要 MySQL 已启动并导入教学数据
+- 知识库类任务需要先摄取内部知识库索引（`uv run python -m app.rag.ingest --all`）
 - 依赖运行时会真实消耗模型 Token，建议先用 `--tasks` 跑子集
 
 ## 基本用法
@@ -28,7 +29,7 @@ uv run python -m evals.run_evals --tasks 1,2,3
 # 并发 2 个任务（默认）
 uv run python -m evals.run_evals --concurrency 2
 
-# 全部非依赖任务
+# 全部任务
 uv run python -m evals.run_evals
 ```
 
@@ -37,7 +38,7 @@ uv run python -m evals.run_evals
 | 依赖 | 如何开启 |
 | --- | --- |
 | 上传附件（files 类） | `--fixtures-dir ./evals/fixtures`，把样例附件放入该目录，运行器会自动带入会话工作目录 |
-| RAGFlow 服务 | `--include-ragflow`（需要本机 RAGFlow 可用） |
+| 知识库问答（rag 类） | 依赖内部知识库索引，先用 `uv run python -m app.rag.ingest --all` 摄取 |
 
 ## 输出
 

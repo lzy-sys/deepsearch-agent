@@ -7,7 +7,7 @@ Markdown 评测报告。
 
 用法：
     uv run python -m evals.run_evals --tasks 1,2,5 --concurrency 2
-    uv run python -m evals.run_evals --fixtures-dir ./evals/fixtures --include-ragflow
+    uv run python -m evals.run_evals --fixtures-dir ./evals/fixtures
 """
 
 from __future__ import annotations
@@ -44,10 +44,9 @@ def load_tasks(path: Path) -> list[dict]:
 def select_tasks(
     tasks: list[dict],
     task_ids: set[int] | None,
-    include_ragflow: bool,
     fixtures_dir: Path | None,
 ) -> list[dict]:
-    """按命令行参数过滤任务：--tasks 指定 id；upload/ragflow 依赖按条件跳过"""
+    """按命令行参数过滤任务：--tasks 指定 id；upload 依赖按条件跳过"""
     selected = []
     for task in tasks:
         if task_ids and int(task["id"]) not in task_ids:
@@ -55,9 +54,6 @@ def select_tasks(
         requirement = task.get("requires")
         if requirement == "upload" and not fixtures_dir:
             print(f"[skip] task {task['id']} 需要上传附件，请用 --fixtures-dir 指定夹具目录")
-            continue
-        if requirement == "ragflow" and not include_ragflow:
-            print(f"[skip] task {task['id']} 需要 RAGFlow 服务，请用 --include-ragflow 开启")
             continue
         selected.append(task)
     return selected
@@ -211,9 +207,9 @@ async def async_main(args: argparse.Namespace) -> int:
         print(f"[error] 夹具目录不存在: {fixtures_dir}")
         return 1
 
-    selected = select_tasks(tasks, task_ids, args.include_ragflow, fixtures_dir)
+    selected = select_tasks(tasks, task_ids, fixtures_dir)
     if not selected:
-        print("没有可执行的任务，请检查 --tasks / --include-ragflow / --fixtures-dir 参数")
+        print("没有可执行的任务，请检查 --tasks / --fixtures-dir 参数")
         return 1
 
     semaphore = asyncio.Semaphore(max(1, args.concurrency))
@@ -233,7 +229,6 @@ def main() -> None:
     parser.add_argument("--tasks", help="要运行的任务 id，逗号分隔，例如 1,2,5")
     parser.add_argument("--concurrency", type=int, default=2, help="并发任务数（默认 2）")
     parser.add_argument("--fixtures-dir", default=None, help="上传类任务的夹具文件目录")
-    parser.add_argument("--include-ragflow", action="store_true", help="包含依赖 RAGFlow 的任务")
     parser.add_argument("--tasks-file", default=str(Path(__file__).parent / "tasks.yaml"), help="任务集文件路径")
     parser.add_argument("--report-dir", default=str(Path(__file__).parent / "report"), help="报告输出目录")
     args = parser.parse_args()

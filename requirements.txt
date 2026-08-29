@@ -5,6 +5,7 @@ deepagents==0.5.7           # 核心工厂方法 create_deep_agent
 langchain==1.2.17           # LangChain 核心库
 langchain-core>=0.2.0       # 基础组件 (Prompt, Message, Tool)
 langchain-community>=0.2.0  # 社区工具集成
+langchain-chroma>=1.0.0,<2.0.0  # ChromaDB 向量库官方集成
 langgraph==1.1.10           # 智能体工作流编排
 
 # --- 大模型服务 (LLM Services) ---

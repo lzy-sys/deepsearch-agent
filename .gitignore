@@ -73,6 +73,9 @@ frontend/.env
 # 自研 RAG 索引目录（ChromaDB + BM25）
 data/rag/
 
+# fastembed 向量模型缓存（Docker 挂载默认目录）
+data/fastembed/
+
 # 本地编辑器配置与临时备份
 /.claude/
 uv.lock.bak

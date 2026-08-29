@@ -93,7 +93,11 @@ async def run_deep_agent(task_query, session_id):
     monitor.report_session_dir(session_dir_str)
 
     # checkpointer 依赖 thread_id 区分会话记忆；同一 session_id 会复用同一条执行上下文
-    config = {"configurable": {"thread_id": session_id}}
+    # recursion_limit 兜底：主智能体调度循环失控时会因步数超限提前终止，避免无限往返
+    config = {
+        "configurable": {"thread_id": session_id},
+        "recursion_limit": 200,
+    }
 
     # 工作环境指令是运行时动态补充的，约束模型只在当前会话目录读写文件
     path_instruction = f"""

@@ -1,7 +1,7 @@
 <div align='center'>
   <h1 style="margin-top: 15px;">「深度研搜」对话式多智能体研究系统</h1>
   <h4><b>deepsearch-agents</b></h4>
-  <p><em>可能是全网最适合用于系统学习 DeepAgents 的多智能体深度研究实战项目，配套系统性文字教程与对应章节分支，带你打通主智能体调度、专家助手分工、多来源检索、文件交付与前后端实时联动全链路</em></p>
+  <p><em>可能是全网最适合用于系统学习 DeepAgents 的多智能体深度研究实战项目，配套系统性文字教程，带你打通主智能体调度、专家助手分工、多来源检索、文件交付与前后端实时联动全链路</em></p>
 </div>
 
 <div align='center'>
@@ -14,13 +14,13 @@
 
 </div>
 
-**📢 说明**：本套实战项目已于 2026 年 5 月 17 日 更新完成，配套教程、章节分支和前后端代码均可对照学习。
+**📢 说明**：本仓库基于 2026 年 5 月 17 日更新完成的教程实战源码，已在此之上完成知识库 RAG 重构（LangChain + LangGraph 增量索引与向量 / BM25 混合检索）、调度与检索性能优化等二次开发，前后端代码均可对照运行学习。
 
 如果你正在找一个适合学习 `DeepAgents`、`WebSocket`、`Tavily`、`LangChain RAG` 和 AI Agent 工程开发的实战项目，「深度研搜」很可能是最适合你的项目。
 
-它不是只调用一次大模型接口，也不是套一个搜索 API 做问答演示。这个项目围绕深度研究场景，用 DeepAgents 组织主智能体和专家子智能体，让系统可以根据任务需要查公开网络、查结构化数据库、查内部知识库、读取用户上传附件，并把最终结果整理成回答、Markdown 或 PDF。换句话说，你学到的不是某一个框架 API，而是一条 AI 应用从多智能体规划、工具接入、上下文隔离、接口交付到前端联调的完整项目主线。
+它不是只调用一次大模型接口，也不是套一个搜索 API 做问答演示。这个项目围绕深度研究场景，用 DeepAgents 组织主智能体和专家子智能体，让系统可以根据任务需要查公开网络、查结构化数据库、查内部知识库、读取用户上传附件，并把最终结果整理成回答、Markdown 或 PDF。其中知识库检索环节基于 LangChain + LangGraph 构建了标准 RAG 管线（增量索引 + 向量 / BM25 混合检索）。换句话说，你学到的不是某一个框架 API，而是一条 AI 应用从多智能体规划、工具接入、上下文隔离、接口交付到前端联调的完整项目主线。
 
-> 本套仓库是 [ai-agents-from-zero](https://github.com/didilili/ai-agents-from-zero) 教程体系中的 [实战项目-深度研搜](https://github.com/didilili/ai-agents-from-zero/tree/main/%E5%AE%9E%E6%88%98%E9%A1%B9%E7%9B%AE-%E6%B7%B1%E5%BA%A6%E7%A0%94%E6%90%9C) 配套源码仓库，除了可直接运行和二次开发的项目代码之外，也提供了与教程章节对应的 Git 分支演进过程，以及完整的在线图文讲义入口。
+> 本套仓库源自 [ai-agents-from-zero](https://github.com/didilili/ai-agents-from-zero) 教程体系中的 [实战项目-深度研搜](https://github.com/didilili/ai-agents-from-zero/tree/main/%E5%AE%9E%E6%88%98%E9%A1%B9%E7%9B%AE-%E6%B7%B1%E5%BA%A6%E7%A0%94%E6%90%9C) 配套源码，教程按章节提供了对应的 Git 分支演进过程与完整的在线图文讲义（入口见上方「在线教程」徽章）；本仓库在此之上继续演进，代码可直接运行和二次开发。
 > 如果你想系统学习「AI 智能体 大模型应用开发」，也可直接从系统教程 [AI 智能体实战速成指南-大模型入门](https://didilili.github.io/ai-agents-from-zero/#/) 开始。
 
 ![深度研搜前端首页：任务示例、助手状态和对话式多智能体研究台](docs/images/deepsearch-agent-home.jpg)
